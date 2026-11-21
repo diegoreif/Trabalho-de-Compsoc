@@ -1,36 +1,115 @@
-'use client';
-import { useRouter } from 'next/navigation';
 
-export default function SeletorProva({ anoAtual }: { anoAtual: string }) {
+'use client';
+
+import { useRouter } from 'next/navigation';
+import type { ChangeEvent } from 'react';
+
+interface SeletorProvaProps {
+    anoAtual: string;
+    areaAtual?: string;
+}
+
+const areas = [
+    {
+        id: 'ciencias-humanas',
+        nome: 'Ciências Humanas',
+        descricao: 'História, Geografia, Filosofia e Sociologia',
+        icone: '🌎'
+    },
+    {
+        id: 'linguagens',
+        nome: 'Linguagens',
+        descricao: 'Português, Literatura, Artes e idiomas',
+        icone: '📚'
+    },
+    {
+        id: 'matematica',
+        nome: 'Matemática',
+        descricao: 'Matemática e suas Tecnologias',
+        icone: '📐'
+    },
+    {
+        id: 'ciencias-natureza',
+        nome: 'Ciências da Natureza',
+        descricao: 'Biologia, Física e Química',
+        icone: '🧪'
+    }
+];
+
+export default function SeletorProva({
+    anoAtual,
+    areaAtual = ''
+}: SeletorProvaProps) {
+
     const router = useRouter();
-    function mudarProva (evento: React.ChangeEvent<HTMLSelectElement>) {
-        const novoAno = evento.target.value;    
+
+    const anos = Array.from(
+        { length: 15 },
+        (_, indice) => 2009 + indice
+    );
+
+    function mudarProva(
+        evento: ChangeEvent<HTMLSelectElement>
+    ) {
+        const novoAno = evento.target.value;
         router.push(`/?ano=${novoAno}`);
     }
+
+    function selecionarArea(area: string) {
+        router.push(
+            `/?ano=${anoAtual}&area=${area}&questao=1`
+        );
+    }
+
     return (
-        <div className='ano-selecao'>
+        <div className="seletor-prova">
 
+            <div className="ano-selecao">
+                <label htmlFor="ano-select">
+                    Escolha o ano da prova
+                </label>
 
-        <label htmlFor="ano-select">Escolha o ano da prova</label>
-        <select id="ano-select" value={anoAtual} onChange={mudarProva}>
-        <option value="2009">ENEM 2009</option>
-        <option value="2010">ENEM 2010</option>
-        <option value="2011">ENEM 2011</option>
-        <option value="2012">ENEM 2012</option>
-        <option value="2013">ENEM 2013</option>
-        <option value="2014">ENEM 2014</option>
-        <option value="2015">ENEM 2015</option>
-        <option value="2016">ENEM 2016</option>
-        <option value="2017">ENEM 2017</option>
-        <option value="2018">ENEM 2018</option>
-        <option value="2019">ENEM 2019</option>
-        <option value="2020">ENEM 2020</option>
-        <option value="2021">ENEM 2021</option>
-        <option value="2022">ENEM 2022</option>
-        <option value="2023">ENEM 2023</option>
-        
-        </select>
-        
+                <select
+                    id="ano-select"
+                    value={anoAtual}
+                    onChange={mudarProva}
+                >
+                    {anos.map((ano) => (
+                        <option key={ano} value={ano}>
+                            ENEM {ano}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <h2 className="titulo-areas">
+                Escolha a área do conhecimento
+            </h2>
+
+            <div className="grade-areas">
+                {areas.map((area) => (
+                    <button
+                        key={area.id}
+                        type="button"
+                        aria-pressed={areaAtual === area.id}
+                        className={
+                            areaAtual === area.id
+                                ? 'card-area area-ativa'
+                                : 'card-area'
+                        }
+                        onClick={() => selecionarArea(area.id)}
+                    >
+                        <span className="icone-area" aria-hidden="true">
+                            {area.icone}
+                        </span>
+
+                        <strong>{area.nome}</strong>
+
+                        <small>{area.descricao}</small>
+                    </button>
+                ))}
+            </div>
+
         </div>
     );
 }
