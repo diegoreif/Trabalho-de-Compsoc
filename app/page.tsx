@@ -23,6 +23,16 @@ interface Questao {
   }[];
 }
 
+interface RespostaAPI {
+  questions: Questao[];
+  metadata: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
 interface PageProps {
   searchParams: Promise<{
     ano?: string;
@@ -38,7 +48,67 @@ const areas: Record<string, string> = {
   "ciencias-natureza": "Ciências da Natureza",
 };
 
-// Busca as questões da API e elimina registros duplicados.
+// Classificação provisória por numeração de referência.
+function classificarQuestao(
+  ano: number,
+  numero: number
+): string {
+
+  if (
+    !Number.isInteger(numero) ||
+    numero < 1 ||
+    numero > 180
+  ) {
+    return "";
+  }
+
+  if (numero >= 136) {
+    return "matematica";
+  }
+
+  if (ano === 2009) {
+
+    if (numero <= 45) {
+      return "ciencias-natureza";
+    }
+
+    if (numero <= 90) {
+      return "ciencias-humanas";
+    }
+
+    return "linguagens";
+  }
+
+  if (ano >= 2010 && ano <= 2016) {
+
+    if (numero <= 45) {
+      return "ciencias-humanas";
+    }
+
+    if (numero <= 90) {
+      return "ciencias-natureza";
+    }
+
+    return "linguagens";
+  }
+
+  if (ano >= 2017 && ano <= 2023) {
+
+    if (numero <= 45) {
+      return "linguagens";
+    }
+
+    if (numero <= 90) {
+      return "ciencias-humanas";
+    }
+
+    return "ciencias-natureza";
+  }
+
+  return "";
+}
+
+// Busca as questões respeitando os metadados da API.
 async function buscarQuestoes(
   ano: string,
   area: string
@@ -48,78 +118,166 @@ async function buscarQuestoes(
 
   const limit = 50;
 
-  for (const offset of [0, 50, 100, 150, 200]) {
+  let offset = 0;
+  let temMais = true;
+  let paginasConsultadas = 0;
+
+  while (temMais) {
+
+    // Proteção contra paginação infinita.
+    if (paginasConsultadas >= 10) {
+      throw new Error(
+        "Não foi possível concluir a paginação da prova."
+      );
+    }
 
     const url = new URL(
       `https://api.enem.dev/v1/exams/${ano}/questions`
     );
 
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("offset", String(offset));
+    url.searchParams.set(
+      "limit",
+      String(limit)
+    );
+
+    url.searchParams.set(
+      "offset",
+      String(offset)
+    );
 
     const response = await fetch(url, {
       cache: "force-cache",
     });
 
     if (response.status === 429) {
+
       throw new Error(
         "Limite de consultas atingido. Tente novamente mais tarde."
       );
     }
 
     if (!response.ok) {
+
       throw new Error(
-        `Erro ${response.status} ao consultar a API.`
+        `Erro ${response.status} ao consultar a API do ENEM.`
       );
     }
 
-    const dados = await response.json();
+    const dados: RespostaAPI =
+      await response.json();
 
     if (!Array.isArray(dados.questions)) {
+
       throw new Error(
         "Resposta inválida da API do ENEM."
       );
     }
 
-    const lista: Questao[] = dados.questions;
+    if (
+      !dados.metadata ||
+      typeof dados.metadata.hasMore !== "boolean"
+    ) {
 
-    for (const questao of lista) {
+      throw new Error(
+        "Informações de paginação indisponíveis."
+      );
+    }
+
+    for (const questao of dados.questions) {
+
+      if (
+        !Number.isInteger(questao.index) ||
+        questao.year !== Number(ano)
+      ) {
+        continue;
+      }
 
       const chave =
         `${ano}-${questao.index}-${questao.language || "sem-idioma"}`;
 
       if (!questoes.has(chave)) {
-        questoes.set(chave, questao);
+
+        questoes.set(
+          chave,
+          questao
+        );
       }
     }
 
-    if (lista.length < limit) {
-      break;
+    temMais = dados.metadata.hasMore;
+
+    paginasConsultadas++;
+
+    if (temMais) {
+
+      if (dados.questions.length === 0) {
+
+        throw new Error(
+          "A API retornou uma página vazia inesperadamente."
+        );
+      }
+
+      // Pequena sobreposição para evitar lacunas.
+      offset += 45;
     }
   }
 
   return Array.from(questoes.values())
-    .filter((questao) => questao.discipline === area)
-    .sort((a, b) => a.index - b.index);
+
+    .map((questao) => ({
+
+      ...questao,
+
+      discipline:
+        classificarQuestao(
+          Number(ano),
+          questao.index
+        ) || questao.discipline,
+
+    }))
+
+    .filter(
+      (questao) =>
+        questao.discipline === area
+    )
+
+    .sort((a, b) => {
+
+      return (
+        a.index - b.index ||
+        (a.language || "").localeCompare(
+          b.language || ""
+        )
+      );
+    });
 }
 
 export default function Home({
-  searchParams
+  searchParams,
 }: PageProps) {
 
   return (
+
     <main className="card-questao">
 
       <h1 style={{ fontSize: "32px" }}>
+
         <strong>
           Projeto de Computador e Sociedade
         </strong>
+
       </h1>
 
       <Suspense
-        fallback={<p>Carregando plataforma...</p>}
+        fallback={
+          <p>Carregando plataforma...</p>
+        }
       >
-        <ConteudoProva searchParams={searchParams} />
+
+        <ConteudoProva
+          searchParams={searchParams}
+        />
+
       </Suspense>
 
     </main>
@@ -127,7 +285,7 @@ export default function Home({
 }
 
 async function ConteudoProva({
-  searchParams
+  searchParams,
 }: PageProps) {
 
   const params = await searchParams;
@@ -140,13 +298,15 @@ async function ConteudoProva({
 
   const areaSel =
     params.area &&
-    Object.prototype.hasOwnProperty.call(areas, params.area)
+    Object.prototype.hasOwnProperty.call(
+      areas,
+      params.area
+    )
       ? params.area
       : "";
 
-  const numeroSolicitado = Number(
-    params.questao || "1"
-  );
+  const numeroSolicitado =
+    Number(params.questao || "1");
 
   const numeroAtual =
     Number.isInteger(numeroSolicitado) &&
@@ -155,6 +315,7 @@ async function ConteudoProva({
       : 1;
 
   let questoes: Questao[] = [];
+
   let erro = "";
 
   if (areaSel) {
@@ -184,12 +345,19 @@ async function ConteudoProva({
 
   const questao = questoes[posicao - 1];
 
-  function enderecoQuestao(numero: number) {
+  const quantidadeNumeros = new Set(
+    questoes.map((item) => item.index)
+  ).size;
+
+  function enderecoQuestao(
+    numero: number
+  ) {
 
     return `/?ano=${anoSel}&area=${areaSel}&questao=${numero}`;
   }
 
   return (
+
     <>
 
       <SeletorProva
@@ -214,7 +382,9 @@ async function ConteudoProva({
 
         <div className="mensagem-erro">
 
-          <h2>Não foi possível carregar as questões</h2>
+          <h2>
+            Não foi possível carregar as questões
+          </h2>
 
           <p role="alert">
             {erro}
@@ -231,7 +401,9 @@ async function ConteudoProva({
 
         <div className="mensagem-inicial">
 
-          <h2>Nenhuma questão encontrada</h2>
+          <h2>
+            Nenhuma questão encontrada
+          </h2>
 
           <p>
             Não encontramos questões disponíveis
@@ -264,19 +436,48 @@ async function ConteudoProva({
             <progress
               value={posicao}
               max={total}
-              style={{ width: "100%" }}
+              style={{
+                width: "100%"
+              }}
               aria-label="Posição na lista de questões"
             />
+
+            <small>
+              {quantidadeNumeros} números de questões
+              disponíveis nesta área.
+            </small>
+
+            {quantidadeNumeros < 45 && (
+
+              <p
+                className="aviso-questoes"
+                role="status"
+              >
+                Algumas questões podem não estar
+                disponíveis na base de dados.
+              </p>
+
+            )}
+
+            <small className="aviso-classificacao">
+              Organização por numeração de referência.
+              Classificação em validação.
+            </small>
 
           </div>
 
           <h2>
-            <strong>{questao.title}</strong>
+
+            <strong>
+              {questao.title}
+            </strong>
+
           </h2>
 
           {questao.language && (
 
             <p>
+
               Idioma: {
                 questao.language === "ingles"
                   ? "Inglês"
@@ -284,39 +485,53 @@ async function ConteudoProva({
                     ? "Espanhol"
                     : questao.language
               }
+
             </p>
 
           )}
 
           {questao.context && (
 
-            <p style={{ whiteSpace: "pre-wrap" }}>
+            <p
+              className="contexto-questao"
+              style={{
+                whiteSpace: "pre-wrap"
+              }}
+            >
+
               {questao.context}
+
             </p>
 
           )}
 
-          {(questao.files || questao.file || []).map(
-            (imagem, indice) => (
+          {(
+            questao.files ||
+            questao.file ||
+            []
+          ).map((imagem, indice) => (
 
-              <img
-                key={indice}
-                src={imagem}
-                alt={`Imagem ${indice + 1} da questão`}
-                style={{
-                  maxWidth: "100%",
-                  height: "auto",
-                  borderRadius: "8px",
-                }}
-              />
+            <img
+              key={indice}
+              src={imagem}
+              alt={`Imagem ${indice + 1} da questão`}
+              style={{
+                maxWidth: "100%",
+                height: "auto",
+                borderRadius: "8px",
+              }}
+            />
 
-            )
-          )}
+          ))}
 
           <p>
+
             <strong>
+
               {questao.alternativesIntroduction}
+
             </strong>
+
           </p>
 
           <FormsQuestao
@@ -340,13 +555,16 @@ async function ConteudoProva({
               <Link
                 className="botao-navegacao"
                 href={enderecoQuestao(posicao - 1)}
+                prefetch={false}
               >
                 ← Anterior
               </Link>
 
             ) : (
 
-              <span>Início da lista</span>
+              <span>
+                Início da lista
+              </span>
 
             )}
 
@@ -359,13 +577,16 @@ async function ConteudoProva({
               <Link
                 className="botao-navegacao"
                 href={enderecoQuestao(posicao + 1)}
+                prefetch={false}
               >
                 Próxima →
               </Link>
 
             ) : (
 
-              <span>Fim da lista</span>
+              <span>
+                Fim da lista
+              </span>
 
             )}
 
